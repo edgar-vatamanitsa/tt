@@ -10,8 +10,21 @@ permissions:
   contents: write
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match Cargo.toml
+        run: |
+          crate_version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "v$crate_version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match Cargo.toml version $crate_version"
+            exit 1
+          fi
+
   build:
     name: build (${{ matrix.target }})
+    needs: check-version
     strategy:
       fail-fast: false
       matrix:
@@ -42,6 +55,15 @@ jobs:
             cp "target/${{ matrix.target }}/release/tt" "$name/"
             tar czf "$name.tar.gz" "$name"
           fi
+          # Checksums let package managers (scripts/homebrew-formula.sh) verify downloads.
+          archive="$name.${{ matrix.archive }}"
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
-          files: tt-*.${{ matrix.archive }}
+          files: |
+            tt-*.${{ matrix.archive }}
+            tt-*.${{ matrix.archive }}.sha256
