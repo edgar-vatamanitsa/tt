@@ -6,7 +6,8 @@
 // <compare>    ::= <primary> *(<compare-op> <primary>)
 // <compare-op> ::= 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'
 // <primary>    ::= ':' <tag> | '[' <expr> ']' | 'not' <primary>
-//                | 'any' | 'tagged' | 'priority' | <number> | <huid>
+//                | '@' <assignee> | 'any' | 'tagged' | 'assigned'
+//                | 'priority' | <number> | <huid>
 //
 // The query is compiled into a list of ops in reverse polish notation and
 // evaluated on a stack for every task.
@@ -87,6 +88,8 @@ pub enum QOpKind {
     Or,
     And,
     Tagged,
+    Assignee(String),
+    Assigned,
     Id(String),
     Priority,
     Integer(i64),
@@ -113,6 +116,8 @@ impl std::fmt::Display for QOp {
             QOpKind::Or => write!(f, "QOP_OR"),
             QOpKind::And => write!(f, "QOP_AND"),
             QOpKind::Tagged => write!(f, "QOP_TAGGED"),
+            QOpKind::Assignee(name) => write!(f, "QOP_ASSIGNEE {name}"),
+            QOpKind::Assigned => write!(f, "QOP_ASSIGNED"),
             QOpKind::Id(id) => write!(f, "QOP_ID {id}"),
             QOpKind::Priority => write!(f, "QOP_PRIORITY"),
             QOpKind::Integer(n) => write!(f, "QOP_INTEGER {n}"),
@@ -190,6 +195,14 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
 
+        if let Some(name) = text.strip_prefix('@') {
+            if name.is_empty() {
+                return Err(self.error(token.span, "ERROR: empty assignee"));
+            }
+            self.emit(QOpKind::Assignee(name.to_string()), token);
+            return Ok(());
+        }
+
         match text {
             "[" => {
                 self.expr()?;
@@ -204,6 +217,7 @@ impl<'a> Compiler<'a> {
             }
             "any" => self.emit(QOpKind::Any, token),
             "tagged" => self.emit(QOpKind::Tagged, token),
+            "assigned" => self.emit(QOpKind::Assigned, token),
             "priority" => self.emit(QOpKind::Priority, token),
             _ if is_valid_huid(text) => self.emit(QOpKind::Id(text.to_string()), token),
             _ => match text.parse::<i64>() {
@@ -212,10 +226,12 @@ impl<'a> Compiler<'a> {
                     eprintln!("What are primary expressions:");
                     eprintln!();
                     eprintln!("    :<tag>         - checks if task has a tag");
+                    eprintln!("    @<assignee>    - checks if task is assigned to someone");
                     eprintln!("    [ <expr> ]     - groups expressions (square brackets need no escaping in shells)");
                     eprintln!("    not <primary>  - negation of a primary expression");
                     eprintln!("    any            - expression that always returns true");
                     eprintln!("    tagged         - checks if a task is tagged");
+                    eprintln!("    assigned       - checks if a task is assigned to anyone");
                     eprintln!("    priority       - priority of a task as an integer");
                     eprintln!("    <number>       - signed integer");
                     eprintln!("    <huid>         - valid id of a task");
@@ -292,7 +308,12 @@ fn type_check(src: &str, ops: &[QOp]) -> Result<()> {
     };
     for op in ops {
         let result = match op.kind {
-            QOpKind::Any | QOpKind::Tag(_) | QOpKind::Tagged | QOpKind::Id(_) => Type::Boolean,
+            QOpKind::Any
+            | QOpKind::Tag(_)
+            | QOpKind::Tagged
+            | QOpKind::Assignee(_)
+            | QOpKind::Assigned
+            | QOpKind::Id(_) => Type::Boolean,
             QOpKind::Priority | QOpKind::Integer(_) => Type::Integer,
             QOpKind::Not => {
                 pop(&mut stack, Type::Boolean)?;
@@ -357,6 +378,8 @@ impl Query {
                 QOpKind::Any => Value::Bool(true),
                 QOpKind::Tag(tag) => Value::Bool(task.has_tag(tag)),
                 QOpKind::Tagged => Value::Bool(!task.tags.is_empty()),
+                QOpKind::Assignee(name) => Value::Bool(task.is_assigned_to(name)),
+                QOpKind::Assigned => Value::Bool(!task.assignees.is_empty()),
                 QOpKind::Id(id) => Value::Bool(task.id == *id),
                 QOpKind::Priority => Value::Int(task.priority),
                 QOpKind::Integer(n) => Value::Int(*n),
@@ -430,8 +453,20 @@ mod tests {
     }
 
     #[test]
+    fn evaluates_assignee_queries() {
+        let mut alice_bug = task(10, &["bug"]);
+        alice_bug.assignees = vec!["alice".into()];
+        let nobody = task(10, &["bug"]);
+        let q = Query::compile("@alice and :bug").unwrap();
+        assert!(q.matches(&alice_bug) && !q.matches(&nobody));
+        let q = Query::compile("not assigned").unwrap();
+        assert!(!q.matches(&alice_bug) && q.matches(&nobody));
+        assert_eq!(ops("@bob or assigned"), ["QOP_ASSIGNEE bob", "QOP_ASSIGNED", "QOP_OR"]);
+    }
+
+    #[test]
     fn rejects_bad_queries() {
-        for src in [":", "[:bug", ":bug lt 5", "priority", "foo", ":a :b", "not"] {
+        for src in [":", "@", "@a lt 1", "[:bug", ":bug lt 5", "priority", "foo", ":a :b", "not"] {
             assert!(Query::compile(src).is_err(), "{src} should not compile");
         }
     }

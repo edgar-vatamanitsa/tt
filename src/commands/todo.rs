@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::new::{create_new_task, prompt, tags_from_flags};
+use super::new::{assignees_from_flags, create_new_task, prompt, tags_from_flags};
 use super::{Ctx, usage_error};
 use crate::error::{Context, Result};
 use crate::flags::{Args, Flag};
@@ -9,7 +9,11 @@ use crate::task::DEFAULT_PRIORITY;
 use crate::term::{outln, stdout_supports_color, write_stdout};
 use crate::text::{find_bytes, trim_bytes};
 
-pub const FLAGS: &[Flag] = &[Flag::list("t", "Tags to add to the new task"), Flag::str("s", "Task ID optional suffix")];
+pub const FLAGS: &[Flag] = &[
+    Flag::list("t", "Tags to add to the new task"),
+    Flag::list("a", "People to assign the new task to"),
+    Flag::str("s", "Task ID optional suffix"),
+];
 
 // Spelled in pieces so running `tt todo` on this very file doesn't find it.
 const MARKER_WORD: &str = concat!("TO", "DO");
@@ -32,6 +36,7 @@ pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
         return Err(usage_error(ctx, "todo", "no files were provided"));
     }
     let tags = tags_from_flags(args.list("t"));
+    let assignees = assignees_from_flags(args.list("a"));
     let use_color = stdout_supports_color();
     let db = TasksDir::find()?;
     let priority = DEFAULT_PRIORITY as i64;
@@ -75,7 +80,7 @@ pub fn run(ctx: &Ctx, args: &Args) -> Result<()> {
                 }
             }
 
-            let id = create_new_task(&db, args.str("s"), &title, priority, tags.clone())?;
+            let id = create_new_task(&db, args.str("s"), &title, priority, tags.clone(), assignees.clone())?;
             let mut replaced = prefix.to_vec();
             replaced.extend_from_slice(format!("TASK({id}):").as_bytes());
             replaced.extend_from_slice(suffix);

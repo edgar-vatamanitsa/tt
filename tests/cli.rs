@@ -290,6 +290,33 @@ fn ls_filters_sorts_and_reports() {
 }
 
 #[test]
+fn assignees() {
+    let sb = Sandbox::with_tasks("assignees");
+    let out = sb.ok(&["new", "-t", "bug", "-a", "alice", "-a", "@bob", "Fix login"]);
+    let id = sb.task_ids()[0].clone();
+    assert_eq!(out, format!("./tasks/{id}/TASK.md:1: OPEN [PRIORITY: 100] [bug] [@alice,@bob] Fix login\n"));
+    let path = format!("tasks/{id}/TASK.md");
+    assert_eq!(sb.read(&path), "# Fix login\n\n- STATUS: OPEN\n- PRIORITY: 100\n- TAGS: bug\n- ASSIGNEES: alice,bob\n");
+
+    sb.write("tasks/20260101-000001/TASK.md", "# Unassigned\n\n- STATUS: OPEN\n- PRIORITY: 1\n- TAGS:\n");
+    assert_eq!(sb.ok(&["ls", "@alice"]).lines().count(), 1);
+    assert!(sb.ok(&["ls", "not assigned"]).contains("Unassigned"));
+
+    sb.ok(&["ls", "-update", "-@alice,+@carol", "@alice"]);
+    assert!(sb.read(&path).contains("- ASSIGNEES: bob,carol\n"));
+    sb.ok(&["ls", "-update", "+@dave", "not assigned"]);
+    assert_eq!(
+        sb.read("tasks/20260101-000001/TASK.md"),
+        "# Unassigned\n\n- STATUS: OPEN\n- PRIORITY: 1\n- TAGS:\n- ASSIGNEES: dave\n"
+    );
+
+    sb.write("src.c", &format!("// {MARKER}: from todo\n"));
+    let output = sb.run_in(&sb.root, &["todo", "-a", "erin", "src.c"], "y\n");
+    assert_success(&output, &["todo"]);
+    assert!(stdout(&output).contains("[@erin] from todo"));
+}
+
+#[test]
 fn ls_paths_are_relative_to_cwd() {
     let sb = Sandbox::with_tasks("rel");
     seed(&sb);
@@ -403,6 +430,19 @@ fn summary_counts_tags_with_descriptions() {
     assert_eq!(
         sb.ok(&["summary", "-c"]),
         "STATUS:   CLOSED\nTOTAL:    1\nTAGGED:\n    bug =>   1 - unintended behavior\n"
+    );
+}
+
+#[test]
+fn summary_counts_assignees() {
+    let sb = Sandbox::with_tasks("summary-assignees");
+    seed(&sb);
+    sb.ok(&["ls", "-update", "+@alice", ":bug"]);
+    sb.ok(&["ls", "-update", "+@bob", ":ui"]);
+    assert_eq!(
+        sb.ok(&["summary"]),
+        "STATUS:   OPEN\nTOTAL:    3\nUNTAGGED: 1\nTAGGED:\n       bug =>   2\n        ui =>   1\n\
+         UNASSIGNED: 1\nASSIGNED:\n    @alice =>   2\n      @bob =>   1\n"
     );
 }
 

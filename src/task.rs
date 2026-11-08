@@ -7,6 +7,7 @@
 //     - STATUS: (OPEN|CLOSED)
 //     - PRIORITY: <number>
 //     - TAGS: <comma-and-whitespace-separated-list-of-tags>
+//     [- ASSIGNEES: <comma-and-whitespace-separated-list-of-people>]
 //     [other properties]
 //
 //     [description]
@@ -27,6 +28,7 @@ pub const INVALID_TITLE: &str = "!!! INVALID: TASK TITLE MUST START WITH # !!!";
 const STATUS: &str = "STATUS";
 const PRIORITY: &str = "PRIORITY";
 const TAGS: &str = "TAGS";
+const ASSIGNEES: &str = "ASSIGNEES";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Property {
@@ -107,6 +109,15 @@ pub fn parse_tags(unparsed: &str) -> Vec<String> {
     split_list(unparsed).map(|(_, tag)| tag.to_string()).collect()
 }
 
+/// Like tags, but a leading `@` is optional: `alice` and `@alice` are the same person.
+pub fn parse_assignees(unparsed: &str) -> Vec<String> {
+    split_list(unparsed)
+        .map(|(_, name)| name.strip_prefix('@').unwrap_or(name))
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// C's `atoi`: optional whitespace and sign, then digits; garbage yields 0.
 fn atoi(s: &str) -> i64 {
     let s = trim(s);
@@ -132,6 +143,8 @@ pub struct Task {
     pub status: String,
     pub priority: i64,
     pub tags: Vec<String>,
+    /// Unlike `tags`, the ASSIGNEES property is optional and only written when used.
+    pub assignees: Vec<String>,
     pub properties: Properties,
     pub body: String,
     pub content: String,
@@ -150,6 +163,7 @@ impl Task {
             status: "OPEN".to_string(),
             priority,
             tags,
+            assignees: Vec::new(),
             properties,
             body: String::new(),
             content: String::new(),
@@ -164,6 +178,7 @@ impl Task {
         let status = properties.get(STATUS).unwrap_or("OPEN").to_string();
         let priority = properties.get(PRIORITY).map_or(UNSET_PRIORITY, atoi);
         let tags = properties.get(TAGS).map(parse_tags).unwrap_or_default();
+        let assignees = properties.get(ASSIGNEES).map(parse_assignees).unwrap_or_default();
         // The well-known properties must exist because their position defines the
         // order in the rendered TASK.md.
         for key in [STATUS, PRIORITY, TAGS] {
@@ -179,6 +194,7 @@ impl Task {
             status,
             priority,
             tags,
+            assignees,
             properties,
             body: md.body,
             content,
@@ -197,7 +213,11 @@ impl Task {
         self.tags.join(",")
     }
 
-    /// `status`, `priority` and `tags` take precedence over whatever is in `properties`.
+    pub fn is_assigned_to(&self, name: &str) -> bool {
+        self.assignees.iter().any(|a| a == name)
+    }
+
+    /// `status`, `priority`, `tags` and `assignees` take precedence over whatever is in `properties`.
     pub fn render(&self) -> String {
         let mut out = format!("# {}\n\n", self.title);
         for p in &self.properties.0 {
@@ -206,9 +226,14 @@ impl Task {
                 PRIORITY => out += &format!("- PRIORITY: {}\n", self.priority),
                 TAGS if self.tags.is_empty() => out += "- TAGS:\n",
                 TAGS => out += &format!("- TAGS: {}\n", self.unparsed_tags()),
+                ASSIGNEES if self.assignees.is_empty() => out += "- ASSIGNEES:\n",
+                ASSIGNEES => out += &format!("- ASSIGNEES: {}\n", self.assignees.join(",")),
                 _ if p.value.is_empty() => out += &format!("- {}:\n", p.key),
                 _ => out += &format!("- {}: {}\n", p.key, p.value),
             }
+        }
+        if !self.assignees.is_empty() && self.properties.get(ASSIGNEES).is_none() {
+            out += &format!("- ASSIGNEES: {}\n", self.assignees.join(","));
         }
         if !self.body.is_empty() && !self.body.starts_with('\n') && !self.body.starts_with("\r\n") {
             out.push('\n');
@@ -227,6 +252,10 @@ impl Task {
         line += &format!(" {} [PRIORITY: {:3}]", self.status, self.priority);
         if !self.tags.is_empty() {
             line += &format!(" [{}]", self.unparsed_tags());
+        }
+        if !self.assignees.is_empty() {
+            let names: Vec<String> = self.assignees.iter().map(|a| format!("@{a}")).collect();
+            line += &format!(" [{}]", names.join(","));
         }
         line += &format!(" {}", self.title);
         line
@@ -325,6 +354,22 @@ mod tests {
         let task = Task::from_md("x".into(), "no hash here\n".into());
         assert!(!task.well_formed);
         assert_eq!(task.title, INVALID_TITLE);
+    }
+
+    #[test]
+    fn assignees_are_optional_and_round_trip() {
+        let md = "# T\n\n- STATUS: OPEN\n- PRIORITY: 1\n- TAGS: bug\n- ASSIGNEES: @alice, bob\n\nBody\n";
+        let task = Task::from_md("x".into(), md.into());
+        assert_eq!(task.assignees, ["alice", "bob"]);
+        assert!(task.is_assigned_to("bob"));
+        assert_eq!(task.render(), md.replace("@alice, bob", "alice,bob"));
+
+        let mut task = Task::from_md("x".into(), "# T\n\n- STATUS: OPEN\n- PRIORITY: 1\n- TAGS:\n\nBody\n".into());
+        assert!(task.assignees.is_empty());
+        assert!(!task.render().contains("ASSIGNEES"), "not added to tasks that don't use it");
+        task.assignees.push("carol".into());
+        assert_eq!(task.render(), "# T\n\n- STATUS: OPEN\n- PRIORITY: 1\n- TAGS:\n- ASSIGNEES: carol\n\nBody\n");
+        assert!(task.report(".", None).ends_with("[PRIORITY:   1] [@carol] T"));
     }
 
     #[test]

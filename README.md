@@ -66,6 +66,15 @@ If a task with the exact same title already exists, `tt new` asks before creatin
 
 When you work in a team, give everyone their own suffix so IDs never collide, e.g. `tt new -s alice Fix login`, which creates `20261108-130000-alice`.
 
+Assign a task to people with `-a`, which works just like `-t`:
+
+```console
+$ tt new -a alice,bob -t bug Fix login
+./tasks/20261108-130001/TASK.md:1: OPEN [PRIORITY: 100] [bug] [@alice,@bob] Fix login
+```
+
+Then `tt ls @alice` lists everything assigned to alice, `tt ls not assigned` lists what nobody has picked up yet, and `tt ls -update -@alice,+@bob <query>` hands tasks over.
+
 ### 3. List tasks
 
 ```console
@@ -267,6 +276,7 @@ The format of `TASK.md`:
 - STATUS: (OPEN|CLOSED)
 - PRIORITY: <number>
 - TAGS: <comma-and-whitespace-separated-list-of-tags>
+[- ASSIGNEES: <comma-and-whitespace-separated-list-of-people>]
 [other properties]
 
 [description]
@@ -284,7 +294,9 @@ The `PRIORITY` is generally used for sorting the tasks. Don't think of priority 
 
 The `TAGS` property contains the list of tags separated by commas and whitespaces. `TAGS: foo,bar,baz` defines 3 tags. `TAGS: foo,,, hello  world` also defines 3 tags. You can use these tags to group tasks into categories, like `bug` or `enhancement`.
 
-You may specify `[other properties]` (in addition to `STATUS`, `PRIORITY`, and `TAGS`) in a similar format (that is `- [NAME]: [VALUE]`). `tt` ignores them but keeps them intact during mass update operations.
+The optional `ASSIGNEES` property lists the people working on the task, in the same format as `TAGS`. A leading `@` is allowed and ignored, so `ASSIGNEES: @alice, bob` assigns the task to `alice` and `bob`. Unlike the other properties it is only written to tasks that use it. This is an extension of tatr's spec, and tatr treats it as just another property.
+
+You may specify `[other properties]` (in addition to `STATUS`, `PRIORITY`, `TAGS`, and `ASSIGNEES`) in a similar format (that is `- [NAME]: [VALUE]`). `tt` ignores them but keeps them intact during mass update operations.
 
 Duplicated properties are not allowed. If a task specifies duplicated properties only the last value is taken into account. Mass update operations remove any duplicated properties.
 
@@ -306,9 +318,9 @@ It serves as documentation for each existing tag. `tt summary` displays the desc
 |-|-|
 | `tt init` | Create `tasks/` in the current directory (with a `README.md` unless `-no-readme`). |
 | `tt ls [QUERY...]` | List open tasks matching the query (`-c` closed, `-a` ascending, `-id` sort by id, `-update` apply updates). |
-| `tt new [TITLE...]` | Create a task (`-p` priority, `-t` tags, `-s` id suffix, `-y` no prompts). |
-| `tt todo <FILE...>` | Interactively turn TODO comments into tasks, replacing them with `TASK(<HUID>)`. |
-| `tt summary` | Count open (or `-c` closed) tasks per tag. |
+| `tt new [TITLE...]` | Create a task (`-p` priority, `-t` tags, `-a` assignees, `-s` id suffix, `-y` no prompts). |
+| `tt todo <FILE...>` | Interactively turn TODO comments into tasks, replacing them with `TASK(<HUID>)` (`-t` tags, `-a` assignees). |
+| `tt summary` | Count open (or `-c` closed) tasks per tag and per assignee. |
 | `tt find <HUID>` | Find a task regardless of its status (`-path-only` prints just the path). |
 | `tt id` | Print the HUID of the task folder you're in (pipe to `pbcopy`, `clip` or `xclip`). |
 | `tt ref [HUID]` | Find all references to a task in the repo (skips `.git` and binary files). |
@@ -339,14 +351,17 @@ $ tt ls not [:bug or :ui]           # grouping uses square brackets
 <compare>         ::= <primary> *(<compare-op> <primary>)
 <compare-op>      ::= 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'
 <primary>         ::= <tag>
+                    | <assignee>
                     | '[' <expr> ']'
                     | 'not' <primary>
                     | 'any'
                     | 'tagged'
+                    | 'assigned'
                     | 'priority'
                     | <number>
                     | <huid>
 <tag>             ::= ':' 1*<any-character-except-whitespaces-and-square-brackets>
+<assignee>        ::= '@' 1*<any-character-except-whitespaces-and-square-brackets>
 <number>          ::= ['-'] 1*<digit>
 <huid>            ::= 8<digit> '-' 6<digit> [ '-' [ <huid-suffix> ] ]
 <huid-suffix>     ::= 'A'-'Z' | 'a'-'z' | '-' | <digit>
@@ -354,6 +369,8 @@ $ tt ls not [:bug or :ui]           # grouping uses square brackets
 ```
 
 The syntax is designed to be used in shell environments without requiring any special escaping. Parentheses and `<`/`>` have special meanings in shells, so grouping uses square brackets and comparisons follow the [test(1)](https://www.man7.org/linux/man-pages/man1/test.1.html) convention: `lt`, `le`, `gt`, `ge`, `eq`, `ne`. Avoid square brackets in tag names if you want to query them.
+
+In PowerShell `@` at the start of an argument has a special meaning, so quote assignee queries there: `tt ls '@alice'`.
 
 #### Reference
 
@@ -364,6 +381,8 @@ The syntax is designed to be used in shell environments without requiring any sp
 | `:<tag>` | True when a task's `TAGS` property contains `<tag>`. |
 | `not <expr>` | True when `<expr>` is false. |
 | `tagged` | True when a task has at least one tag. |
+| `@<name>` | True when a task's `ASSIGNEES` property contains `<name>`. |
+| `assigned` | True when a task is assigned to at least one person. |
 | `<huid>` | True when a task has id equal to `<huid>`. |
 | `any` | Always true. |
 | `priority` | Priority of the task as an integer. |
@@ -390,6 +409,8 @@ The command above closes all the tasks tagged `bug` and removes the `scope` tag 
 |-|-|
 | `+tag` | Add tag to the task |
 | `-tag` | Remove tag from the task |
+| `+@name` | Assign the task to `name` |
+| `-@name` | Unassign `name` from the task |
 | `close` | Close the task |
 | `open` | Open the task |
 

@@ -8,12 +8,13 @@ use crate::error::{Context, Result, fail};
 use crate::flags::{Args, Flag};
 use crate::huid::{is_valid_huid, new_huid};
 use crate::paths::TasksDir;
-use crate::task::{DEFAULT_TASK_TITLE, Task, load_tasks, parse_tags};
+use crate::task::{DEFAULT_TASK_TITLE, Task, load_tasks, parse_assignees, parse_tags};
 use crate::term::{flush_stdout, out, outln};
 use crate::text::trim;
 
 pub const FLAGS: &[Flag] = &[
     Flag::list("t", "Tags to add to the new task"),
+    Flag::list("a", "People to assign the new task to"),
     Flag::uint("p", DEFAULT_PRIORITY_FLAG, "Priority of the new task"),
     Flag::str("s", "Task ID optional suffix"),
     Flag::bool("y", "Always answer 'y' to any prompts of this command"),
@@ -29,6 +30,7 @@ pub fn run(_ctx: &Ctx, args: &Args) -> Result<()> {
         title => title,
     };
     let tags = tags_from_flags(args.list("t"));
+    let assignees = assignees_from_flags(args.list("a"));
     let priority = i64::try_from(args.uint("p")).unwrap_or(i64::MAX);
 
     let db = TasksDir::find()?;
@@ -44,12 +46,16 @@ pub fn run(_ctx: &Ctx, args: &Args) -> Result<()> {
         }
     }
 
-    create_new_task(&db, args.str("s"), title, priority, tags)?;
+    create_new_task(&db, args.str("s"), title, priority, tags, assignees)?;
     Ok(())
 }
 
 pub fn tags_from_flags(values: &[String]) -> Vec<String> {
     values.iter().flat_map(|v| parse_tags(v)).collect()
+}
+
+pub fn assignees_from_flags(values: &[String]) -> Vec<String> {
+    values.iter().flat_map(|v| parse_assignees(v)).collect()
 }
 
 /// Creates `tasks/<HUID>/TASK.md`, prints its report line and returns the new HUID.
@@ -59,6 +65,7 @@ pub fn create_new_task(
     title: &str,
     priority: i64,
     tags: Vec<String>,
+    assignees: Vec<String>,
 ) -> Result<String> {
     let mut id = new_huid(suffix);
     if !is_valid_huid(&id) {
@@ -79,7 +86,8 @@ pub fn create_new_task(
     }
     fs::create_dir(&task_dir).context(format_args!("could not create {}", task_dir.display()))?;
 
-    let task = Task::new(id.clone(), title.to_string(), priority, tags);
+    let mut task = Task::new(id.clone(), title.to_string(), priority, tags);
+    task.assignees = assignees;
     let task_md = task_dir.join("TASK.md");
     fs::write(&task_md, task.render()).context(format_args!("could not write {}", task_md.display()))?;
     outln!("{}", task.report(&db.rel, None));

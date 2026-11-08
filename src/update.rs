@@ -3,6 +3,8 @@
 //
 //   +tag   add tag
 //   -tag   remove tag
+//   +@name assign the task to name
+//   -@name unassign name from the task
 //   close  close the task
 //   open   open the task
 
@@ -17,6 +19,8 @@ pub enum UOp {
     Open,
     Tag(String),
     Untag(String),
+    Assign(String),
+    Unassign(String),
 }
 
 impl std::fmt::Display for UOp {
@@ -26,6 +30,8 @@ impl std::fmt::Display for UOp {
             UOp::Open => write!(f, "UOP_OPEN"),
             UOp::Tag(tag) => write!(f, "UOP_TAG {tag}"),
             UOp::Untag(tag) => write!(f, "UOP_UNTAG {tag}"),
+            UOp::Assign(name) => write!(f, "UOP_ASSIGN {name}"),
+            UOp::Unassign(name) => write!(f, "UOP_UNASSIGN {name}"),
         }
     }
 }
@@ -45,15 +51,23 @@ pub fn compile_update(src: &str) -> Result<Vec<UOp>> {
                 report_diagnostic(src, span, "ERROR: empty tag");
                 return Err(Error::Reported);
             }
+            "+@" | "-@" => {
+                report_diagnostic(src, span, "ERROR: empty assignee");
+                return Err(Error::Reported);
+            }
+            _ if action.starts_with("+@") => UOp::Assign(action[2..].to_string()),
+            _ if action.starts_with("-@") => UOp::Unassign(action[2..].to_string()),
             _ if action.starts_with('+') => UOp::Tag(action[1..].to_string()),
             _ if action.starts_with('-') => UOp::Untag(action[1..].to_string()),
             _ => {
                 eprintln!("Supported actions:");
                 eprintln!();
-                eprintln!("    +<tag>  - add tag to the task");
-                eprintln!("    -<tag>  - remove tag from the task");
-                eprintln!("    close   - close the task");
-                eprintln!("    open    - open the task");
+                eprintln!("    +<tag>    - add tag to the task");
+                eprintln!("    -<tag>    - remove tag from the task");
+                eprintln!("    +@<name>  - assign the task to name");
+                eprintln!("    -@<name>  - unassign name from the task");
+                eprintln!("    close     - close the task");
+                eprintln!("    open      - open the task");
                 eprintln!();
                 report_diagnostic(src, span, &format!("ERROR: Unknown action `{action}`"));
                 return Err(Error::Reported);
@@ -87,6 +101,17 @@ pub fn apply_update(task: &mut Task, ops: &[UOp]) -> bool {
                 task.tags.retain(|t| t != tag);
                 updated |= task.tags.len() != before;
             }
+            UOp::Assign(name) => {
+                if !task.is_assigned_to(name) {
+                    task.assignees.push(name.clone());
+                    updated = true;
+                }
+            }
+            UOp::Unassign(name) => {
+                let before = task.assignees.len();
+                task.assignees.retain(|a| a != name);
+                updated |= task.assignees.len() != before;
+            }
         }
     }
     updated
@@ -102,6 +127,11 @@ mod tests {
         assert_eq!(ops, [UOp::Close, UOp::Untag("scope".into()), UOp::Tag("release".into())]);
         assert!(compile_update("reopen").is_err());
         assert!(compile_update("+").is_err());
+        assert!(compile_update("+@").is_err());
+        assert_eq!(
+            compile_update("+@alice,-@bob").unwrap(),
+            [UOp::Assign("alice".into()), UOp::Unassign("bob".into())]
+        );
     }
 
     #[test]

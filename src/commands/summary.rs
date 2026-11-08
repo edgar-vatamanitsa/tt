@@ -46,7 +46,9 @@ pub fn run(_ctx: &Ctx, args: &Args) -> Result<()> {
 
     let mut total = 0;
     let mut untagged = 0;
+    let mut unassigned = 0;
     let mut counts: HashMap<&str, usize> = HashMap::new();
+    let mut assignee_counts: HashMap<String, usize> = HashMap::new();
     for task in tasks.iter().filter(|t| t.is_closed() == closed) {
         total += 1;
         if task.tags.is_empty() {
@@ -55,11 +57,23 @@ pub fn run(_ctx: &Ctx, args: &Args) -> Result<()> {
         for tag in &task.tags {
             *counts.entry(tag).or_default() += 1;
         }
+        if task.assignees.is_empty() {
+            unassigned += 1;
+        }
+        for name in &task.assignees {
+            *assignee_counts.entry(format!("@{name}")).or_default() += 1;
+        }
     }
 
-    let mut counts: Vec<(&str, usize)> = counts.into_iter().collect();
-    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-    let width = counts.iter().map(|(tag, _)| tag.chars().count()).max().unwrap_or(0);
+    let counts = sorted_by_count(counts);
+    let assignee_counts = sorted_by_count(assignee_counts);
+    // One width for both sections so their columns line up.
+    let width = counts
+        .iter()
+        .map(|(tag, _)| tag.chars().count())
+        .chain(assignee_counts.iter().map(|(name, _)| name.chars().count()))
+        .max()
+        .unwrap_or(0);
 
     outln!("STATUS:   {}", if closed { "CLOSED" } else { "OPEN" });
     outln!("TOTAL:    {total}");
@@ -75,7 +89,24 @@ pub fn run(_ctx: &Ctx, args: &Args) -> Result<()> {
             }
         }
     }
+    // Projects that don't use assignees don't get an "everything is unassigned" line.
+    if !assignee_counts.is_empty() {
+        if unassigned > 0 {
+            outln!("UNASSIGNED: {unassigned}");
+        }
+        outln!("ASSIGNED:");
+        for (name, count) in assignee_counts {
+            outln!("    {name:>width$} => {count:3}");
+        }
+    }
     Ok(())
+}
+
+/// Most used first, ties alphabetically.
+fn sorted_by_count<K: Ord>(counts: HashMap<K, usize>) -> Vec<(K, usize)> {
+    let mut counts: Vec<(K, usize)> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts
 }
 
 #[cfg(test)]
