@@ -1,0 +1,21 @@
+[package]
+name = "tt"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Task Tracker: a tiny plain-text task system that lives in the tasks/ folder of your repo"
+license = "GPL-2.0-or-later"
+readme = "README.md"
+keywords = ["tasks", "todo", "issue-tracker", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "tt"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
