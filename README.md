@@ -6,11 +6,53 @@ A tiny plain-text task system that lives in the `tasks/` folder of your repo, pl
 
 ## Install
 
-From a local checkout (any platform with a [Rust toolchain](https://rustup.rs/)):
+### Homebrew (macOS and Linux)
+
+```console
+$ brew install edgar-vatamanitsa/tap-tt/tt
+```
+
+Upgrade later with `brew upgrade tt`. Homebrew's main repository already has an unrelated `tt` (a Tarantool tool), so the tap name must be written in full, and the two can't be installed at the same time.
+
+### Prebuilt binaries
+
+Every [GitHub release](https://github.com/edgar-vatamanitsa/tt/releases) has a ready-to-run binary for each platform:
+
+| Platform | File |
+|-|-|
+| macOS, Apple Silicon | `tt-<version>-aarch64-apple-darwin.tar.gz` |
+| macOS, Intel | `tt-<version>-x86_64-apple-darwin.tar.gz` |
+| Linux, x86_64 (static, any distro) | `tt-<version>-x86_64-unknown-linux-musl.tar.gz` |
+| Windows, x86_64 | `tt-<version>-x86_64-pc-windows-msvc.zip` |
+
+Each archive has a matching `.sha256` file to verify the download.
+
+On macOS and Linux, unpack it and put `tt` somewhere on your `PATH`:
+
+```console
+$ tar xzf tt-v0.2.0-aarch64-apple-darwin.tar.gz
+$ sudo mv tt-v0.2.0-aarch64-apple-darwin/tt /usr/local/bin/
+```
+
+The binary isn't signed by Apple. If macOS refuses to run a binary downloaded with a browser, clear the quarantine flag with `xattr -d com.apple.quarantine /usr/local/bin/tt`.
+
+On Windows, unzip it and move `tt.exe` to a folder on your `PATH`.
+
+### From source
+
+With a [Rust toolchain](https://rustup.rs/) on any platform:
+
+```console
+$ cargo install --git https://github.com/edgar-vatamanitsa/tt
+```
+
+Or from a local checkout:
 
 ```console
 $ cargo install --path .
 ```
+
+Check that it works:
 
 ```console
 $ tt help
